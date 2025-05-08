@@ -4,14 +4,19 @@ from django.contrib.auth.models import User
 
 class TravelRequest(models.Model):
     user=models.ForeignKey(User,on_delete=models.CASCADE)
+
     country=models.CharField(max_length=50)
-    cities=models.JSONField(default=dict)
+    cities=models.JSONField(default=list)
+
     start_date=models.DateField()
     end_date=models.DateField()
-    transportation=models.JSONField(default=dict)
+
+    transportation=models.JSONField(default=list)
     max_distance=models.IntegerField()
-    interests=models.JSONField(default=dict)
-    mood=models.JSONField(default=dict)
+
+    interests=models.JSONField(default=list)
+    mood=models.JSONField(default=list)
+
     created_at=models.DateTimeField(auto_now_add=True)
 
 class TravelSchedule(models.Model):

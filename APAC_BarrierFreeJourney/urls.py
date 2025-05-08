@@ -21,7 +21,7 @@ from main.views.TravelRequest import TravelRequestCreateView, TravelRequestDetai
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('travel/request/', TravelRequestCreateView.as_view(), name='travel-request-create'),
-    path('travel/request/<int:pk>/', TravelRequestDetailView.as_view(), name='travel-request-detail'),
+    path('travel/request/<int:request_id>/', TravelRequestDetailView.as_view(), name='travel-request-detail'),
 
 
     ]
