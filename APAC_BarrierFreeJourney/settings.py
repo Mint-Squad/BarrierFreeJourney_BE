@@ -12,6 +12,27 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 
+import os
+from django.core.exceptions import ImproperlyConfigured
+from dotenv import load_dotenv
+
+# .env 파일에서 환경 변수 로드 (프로젝트 루트에 .env 파일이 있을 경우)
+PROJECT_ROOT_DIR = Path(__file__).resolve().parent.parent
+dotenv_path = PROJECT_ROOT_DIR / '.env'
+if os.path.exists(dotenv_path):
+    load_dotenv(dotenv_path)
+    print(f"DEBUG: .env file loaded from: {dotenv_path}")  # 로드 확인용
+else:
+    print(f"DEBUG: .env file not found at: {dotenv_path}") # .env 파일 못 찾을 경우
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+if not GEMINI_API_KEY:
+    raise ImproperlyConfigured("GEMINI_API_KEY가 설정되지 않았습니다.")
+
+GOOGLE_PLACES_API_KEY = os.getenv("GOOGLE_PLACES_API_KEY")
+if not GOOGLE_PLACES_API_KEY:
+    raise ImproperlyConfigured("GOOGLE_PLACES_API_KEY가 설정되지 않았습니다.")
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -39,7 +60,6 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'main',
-    'corsheaders',
 ]
 
 MIDDLEWARE = [

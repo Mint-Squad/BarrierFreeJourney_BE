@@ -2,7 +2,7 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied
 from main.models.models import TravelRequest
-from main.serializers.request import (
+from main.serializers.TravelRequest import (
     TravelRequestCreateSerializer,
     TravelRequestUpdateSerializer,
     TravelRequestDetailSerializer)
@@ -43,6 +43,14 @@ class TravelRequestDetailView(generics.RetrieveUpdateDestroyAPIView):
             return TravelRequestUpdateSerializer
         return TravelRequestDetailSerializer
 
+    # 수정 후 success만 보낼 때
+    # def get_serializer_class(self):
+    #     if self.request.method == 'GET':
+    #         return TravelRequestDetailSerializer
+    #     if self.request.method in ['PUT', 'PATCH']:
+    #         return TravelRequestUpdateSerializer
+    #     return TravelRequestDetailSerializer
+
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
         data = TravelRequestDetailSerializer(instance).data
@@ -54,6 +62,7 @@ class TravelRequestDetailView(generics.RetrieveUpdateDestroyAPIView):
     def update(self, request, *args, **kwargs):
         # PUT / PATCH 둘 다 여기로 들어오므로 partial 플래그에 따라 처리
         partial = kwargs.pop('partial', False)
+
         instance = self.get_object()
 
         # 작성자 체크

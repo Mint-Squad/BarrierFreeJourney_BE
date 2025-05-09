@@ -20,12 +20,12 @@ class TravelRequest(models.Model):
     created_at=models.DateTimeField(auto_now_add=True)
 
 class TravelSchedule(models.Model):
-    request=models.ForeignKey(TravelRequest,on_delete=models.CASCADE)
+    travel_request=models.ForeignKey(TravelRequest,on_delete=models.CASCADE)
     version=models.PositiveIntegerField()
     created_at=models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together=('request','version')
+        unique_together=('travel_request','version')
 
 class ScheduleItem(models.Model):
     schedule=models.ForeignKey(TravelSchedule,on_delete=models.CASCADE)

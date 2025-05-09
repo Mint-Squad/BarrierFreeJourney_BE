@@ -17,11 +17,14 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 from main.views.TravelRequest import TravelRequestCreateView, TravelRequestDetailView
+from main.views.TravelSchedule import TravelScheduleCreateView, TravelScheduleListView,TravelScheduleDetailView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('travel/request/', TravelRequestCreateView.as_view(), name='travel-request-create'),
     path('travel/request/<int:request_id>/', TravelRequestDetailView.as_view(), name='travel-request-detail'),
-
+    path('travel/schedule/',TravelScheduleCreateView.as_view(), name='travel-schedule-create'),
+    path('travel/schedule/<int:request_id>/', TravelScheduleListView.as_view(), name='travel-schedule-list'),
+    path('travel/schedule/<int:request_id>/<int:version>/', TravelScheduleDetailView.as_view(), name='travel-schedule-detail')
 
     ]
