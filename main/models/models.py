@@ -12,7 +12,7 @@ class TravelRequest(models.Model):
     end_date=models.DateField()
 
     transportation=models.JSONField(default=list)
-    max_distance=models.IntegerField()
+    max_distance=models.IntegerField(default=0)
 
     interests=models.JSONField(default=list)
     mood=models.JSONField(default=list)
@@ -28,13 +28,13 @@ class TravelSchedule(models.Model):
         unique_together=('travel_request','version')
 
 class ScheduleItem(models.Model):
-    schedule=models.ForeignKey(TravelSchedule,on_delete=models.CASCADE)
-    place_name=models.CharField(max_length=100)
-    place_id=models.IntegerField()
+    schedule=models.ForeignKey(TravelSchedule,on_delete=models.CASCADE, related_name='items')
+    place_name=models.CharField(max_length=255)
+    place_id=models.CharField(max_length=100, blank=True, null=True)
     date=models.DateField()
     start_time=models.TimeField()
     end_time=models.TimeField()
     lat=models.FloatField()
     lng=models.FloatField()
     transport_type=models.CharField(max_length=100)
-    address=models.CharField(max_length=100)
+    address=models.CharField(max_length=255)
