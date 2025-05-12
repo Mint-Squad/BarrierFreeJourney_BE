@@ -110,27 +110,20 @@ def find_places_by_text_search(
             time.sleep(2)  # next_page_token 활성화 대기 (API 권장 사항)
 
     processed = []
+    fetched_detail_ids=set()
     for place in all_results:
         place_id = place.get('place_id')
         if not place_id:
             continue
-
+        fetched_detail_ids.add(place_id)  # Place Details 호출 전에 추가
         # 상세 정보 호출, 이때 wheelchair_entrance == True인 경우에만 dict 반환
         details = get_place_details_with_wheelchair_info(place_id, language=language)
-        if not details or details.get("wheelchair_entrance") is not True:
-            # None 이거나, 접근 불가(False), 정보 미존재(None) 모두 제외
-            continue
 
-        # 필요한 정보만 가공해서 결과에 추가
-        processed.append({
-            "place_id": details["place_id"],
-            "place_name": details["name"],
-            "lat": details.get("lat"),
-            "lng": details.get("lng"),
-            "address": details.get("address"),
-            "wheelchair_details": details,
-            # 필요하면 types, rating 등 추가 필드도 포함
-        })
+        if details:
+            # detailed_place_info는 이미 필요한 모든 키를 포함하고 있음
+            # (place_id, name, lat, lng, address, wheelchair_details 등)
+            processed.append(details)
+
         if len(processed) >= limit:
             break
 
@@ -148,10 +141,9 @@ def get_place_details_with_wheelchair_info(place_id, language='ko'):
 
     # 요청할 필드 목록 정의
     fields = [
-        'wheelchair_accessible_entrance',
-        'wheelchair_accessible_restroom',
-        'wheelchair_accessible_parking',
-        'wheelchair_accessible_seating', # 필요한 추가 정보
+        'place_id', 'name', 'formatted_address', 'geometry',  # Basic info
+        'wheelchair_accessible_entrance',  # Accessibility
+        'type', 'rating', 'opening_hours'  # Additional useful info
     ]
     try:
         logger.info(f"Calling Google Place Details API for place_id: '{place_id}' with fields: {fields}")
@@ -161,13 +153,35 @@ def get_place_details_with_wheelchair_info(place_id, language='ko'):
             language=language
         )
         result = resp.get('result', {})
-        return {
-            # 휠체어 접근성 정보 (True/False/None)
-            "wheelchair_entrance": result.get('wheelchair_accessible_entrance'),
-            "wheelchair_restroom": result.get('wheelchair_accessible_restroom'),
-            "wheelchair_parking": result.get('wheelchair_accessible_parking'),
-            "wheelchair_seating": result.get('wheelchair_accessible_seating'),
+        if not result:
+            logger.warning(f"No result data from Place Deatils API for place_id '{place_id}'")
+            return None
+
+        # 휠체어 접근성 확인
+        wheelchair_entrance_accessible = result.get('wheelchair_accessible_entrance')
+        if wheelchair_entrance_accessible is False: # 명시적으로 False이면 접근 불가
+            logger.info(f"Place '{result.get('name', place_id)}' is not wheelchair accessible (entrance: False).")
+            return None # 접근 불가 장소는 None 반환
+
+        details_to_return = {
+            "place_id": result.get('place_id'),
+            "name": result.get('name'),
+            "lat": result.get('geometry', {}).get('location', {}).get('lat'),
+            "lng": result.get('geometry', {}).get('location', {}).get('lng'),
+            "address": result.get('formatted_address'),
+            "types": result.get('types', []),
+            "rating": result.get('rating'),
+            "website": result.get('website'),
+            "opening_hours_text": result.get('opening_hours', {}).get('weekday_text') if result.get(
+                'opening_hours') else None,
+            # 휠체어 관련 정보는 'wheelchair_details' 키 아래에 그룹화
+            "wheelchair_details": {
+                "wheelchair_entrance": wheelchair_entrance_accessible,
+                # 다른 휠체어 관련 필드(restroom, parking, seating)는 API에서 직접 제공하지 않음
+                # 필요하다면 Gemini가 추론하도록 프롬프트에서 안내
+            }
         }
+        return details_to_return
 
     except ApiError as e:
         logger.error(f"Google Place Details API Error for place_id '{place_id}': {e.status} - {e.message}")

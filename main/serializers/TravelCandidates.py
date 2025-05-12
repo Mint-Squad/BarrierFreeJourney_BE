@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 class TravelCandidateSerializer(serializers.Serializer):
     place_id = serializers.CharField()
-    place_name = serializers.CharField()
+    name = serializers.CharField()
     lat = serializers.FloatField()
     lng = serializers.FloatField()
     address = serializers.CharField()

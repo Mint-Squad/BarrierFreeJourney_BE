@@ -3,6 +3,16 @@ from email.policy import default
 from django.db import models
 from django.contrib.auth.models import User
 # Create your models here.
+class Place(models.Model):
+    place_id = models.CharField(max_length=255, primary_key=True)
+    name     = models.CharField(max_length=200)
+    address  = models.TextField(blank=True)
+    lat      = models.FloatField()
+    lng      = models.FloatField()
+    # 휠체어 접근성 세부 정보
+    wheelchair_entrance = models.BooleanField(null=True)
+
+    updated_at = models.DateTimeField(auto_now=True)
 
 class TravelRequest(models.Model):
     user=models.ForeignKey(User,on_delete=models.CASCADE)
@@ -19,8 +29,12 @@ class TravelRequest(models.Model):
     interests=models.JSONField(default=list)
     mood=models.JSONField(default=list)
 
-    selected_places=models.JSONField(blank=True, null=True, default=list,
-                          help_text="유저가 후보지 리스트에서 선택한 장소 정보를 JSON 형태로 저장")
+    selected_places=models.ManyToManyField(
+        Place,
+        blank=True,
+        related_name="requested_by",
+        help_text="사용자가 여행에 포함하기로 선택한 장소(Place 객체 참조)"
+       )
     created_at=models.DateTimeField(auto_now_add=True)
 
 class TravelSchedule(models.Model):
@@ -33,12 +47,10 @@ class TravelSchedule(models.Model):
 
 class ScheduleItem(models.Model):
     schedule=models.ForeignKey(TravelSchedule,on_delete=models.CASCADE, related_name='items')
-    place_name=models.CharField(max_length=255)
-    place_id=models.CharField(max_length=100, blank=True, null=True)
+    place=models.ForeignKey(Place,on_delete=models.PROTECT, related_name='schedule_items')
     date=models.DateField()
     start_time=models.TimeField()
     end_time=models.TimeField()
-    lat=models.FloatField()
-    lng=models.FloatField()
     transport_type=models.CharField(max_length=100)
-    address=models.CharField(max_length=255)
+
+

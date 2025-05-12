@@ -1,5 +1,6 @@
 from rest_framework import serializers
-from main.models.models import TravelRequest, TravelSchedule, ScheduleItem
+from main.models.models import TravelRequest, Place
+
 
 # POST travel
 class TravelRequestCreateSerializer(serializers.ModelSerializer):
@@ -17,14 +18,18 @@ class TravelRequestCreateSerializer(serializers.ModelSerializer):
 
 # GET
 class TravelRequestDetailSerializer(serializers.ModelSerializer):
+    selected_places=serializers.PrimaryKeyRelatedField(
+        many=True,
+        queryset=Place.objects.all()
+    )
     class Meta:
         model = TravelRequest
         fields = [
             "id", "user", "country", "cities", "start_date", "end_date",
             "transportation", "max_distance", "interests", "mood",
-            "created_at",
+            "selected_places", "created_at",
         ]
-        read_only_fields = ["id", "created_at"]
+        read_only_fields = ["id", "user", "created_at"]
 
 # update PUT
 class TravelRequestUpdateSerializer(serializers.ModelSerializer):

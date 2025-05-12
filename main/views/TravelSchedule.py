@@ -3,7 +3,7 @@ from rest_framework.response import Response
 from rest_framework.status import HTTP_400_BAD_REQUEST
 from django.db import transaction
 
-from main.models.models import TravelRequest, TravelSchedule, ScheduleItem
+from main.models.models import TravelRequest, TravelSchedule, ScheduleItem, Place
 from django.shortcuts import get_object_or_404
 import json, logging
 from main.serializers.TravelSchedule import TravelScheduleSerializer, ScheduleItemSerializer
@@ -19,6 +19,7 @@ class TravelScheduleCreateView(generics.CreateAPIView):
     """
     serializer_class = TravelScheduleSerializer
     permission_classes = [permissions.IsAuthenticated]
+
     def create(self, request, *args, **kwargs):
         travel_request_id_str = request.data.get("travel_request")
         if not travel_request_id_str:
@@ -70,11 +71,6 @@ class TravelScheduleCreateView(generics.CreateAPIView):
             logger.error(f"Runtime error during service initialization for TR ID {travel_request_id}: {e}")
             return Response({"result": "error", "message": "A service required for scheduling failed to initialize."},
                             status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        except json.JSONDecodeError as e:
-            logger.error(
-                f"Failed to parse JSON response from Gemini for TR ID {travel_request_id}. Response: {raw_json[:500] if 'raw_json' in locals() else 'N/A'}")
-            return Response({"result": "error", "message": "AI service returned an invalid format."},
-                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         except Exception as e:  # 기타 예상치 못한 오류
             logger.exception(f"Unexpected error during Gemini schedule generation for TR ID {travel_request_id}: {e}")
             return Response(
@@ -98,25 +94,22 @@ class TravelScheduleCreateView(generics.CreateAPIView):
                 items_to_create = []
                 for item_data in schedule_items:
                     try:
-                        lat_val = float(item_data.get('lat', 0.0))
-                        lng_val = float(item_data.get('lng', 0.0))
-                    except (ValueError, TypeError) as ve:
+                        place = Place.objects.get(place_id=item_data["place_id"])
+                    except Place.DoesNotExist:
                         logger.warning(
-                            f"Skipping item due to data type error for TR {tr_obj.id}, version {version}: {item_data}. Error: {ve}")
+                            f"Skipping schedule item, Place not found in DB for place_id={item_data.get('place_id')}"
+                        )
                         continue
 
                     items_to_create.append(
                         ScheduleItem(
                             schedule=new_schedule,
-                            place_name=item_data.get("place_name"),
-                            place_id=item_data.get("place_id"),
+                            place=place,
                             date=item_data.get("date"),
                             start_time=item_data.get("start_time"),
                             end_time=item_data.get("end_time"),
-                            lat=lat_val,
-                            lng=lng_val,
-                            transport_type=item_data.get("transport_type"),
-                            address=item_data.get("address"),
+                            transport_type=item_data.get("transport_type", ""),
+                            #description=item_data.get("description", "")\
                         )
                     )
 
@@ -124,7 +117,9 @@ class TravelScheduleCreateView(generics.CreateAPIView):
                     ScheduleItem.objects.bulk_create(items_to_create)
                 else:
                     logger.info(
-                        f"No valid schedule items to save for TR ID {tr_obj.id}, version {version} after processing Gemini response.")
+                        f"No valid schedule items to save for TR ID {tr_obj.id}, version {version}."
+                    )
+
 
         except TravelRequest.DoesNotExist:  # select_for_update().get()에서 발생 가능
             return Response({"result": "error", "message": "Travel request not found or access denied."},

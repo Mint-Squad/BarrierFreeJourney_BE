@@ -2,11 +2,12 @@ from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from main.models.models import TravelRequest
+from main.models.models import TravelRequest, Place
 from django.shortcuts import get_object_or_404
 import json, logging
 from main.serializers.TravelCandidates import TravelCandidateSerializer
 from main.services.gemini_api import generate_place
+from main.services.places_api import get_place_details_with_wheelchair_info
 
 logger = logging.getLogger(__name__) # 로거 설정
 
@@ -28,6 +29,16 @@ class TravelCandidatesListView(APIView):
         try:
             raw_json = generate_place(tr)  # JSON string
             all_places = json.loads(raw_json)  # list[dict]
+            for p in all_places:
+                Place.objects.update_or_create(place_id=p['place_id'],
+                                               defaults={
+                                                   'name': p['name'],
+                                                   'address': p['address'],
+                                                   'lat': p['lat'],
+                                                   'lng': p['lng'],
+                                                   'wheelchair_entrance': p.get('wheelchair_details', {}).get('wheelchair_entrance')
+
+                                               })
         except ValueError as e:
             logger.error(f"Error generating places for TR {tr.id}: {e}")
             return Response(
@@ -57,7 +68,6 @@ class TravelCandidatesSelectView(APIView):
     [POST] /travel/schedule/candidates/{request_id}/
     [PATCH] /travel/schedule/candidates/{request_id}/
     [PATCH] /travel/schedule/candidates/{request_id}/
-
     """
     permission_classes = [permissions.IsAuthenticated]
 
@@ -65,52 +75,88 @@ class TravelCandidatesSelectView(APIView):
         request_pk = int(kwargs.get('request_id'))
         return get_object_or_404(TravelRequest, pk=request_pk, user=user)
 
-    def _validate_list(self, lst):
-        return isinstance(lst, list) and all(isinstance(item, str) for item in lst)
+    def _ensure_place(self, place_id):
+        """
+        place_id로 Place 인스턴스를 반환.
+        존재하지 않으면 API 호출로 상세 정보를 가져와 새로 생성.
+        실패 시 None 반환.
+        """
+        try:
+            return Place.objects.get(place_id=place_id)
+        except Place.DoesNotExist:
+            details = get_place_details_with_wheelchair_info(place_id)
+            if not details:
+                return None
+            # 필드 이름은 Place 모델에 맞춰 조정
+            wheelchair_flag = details.get("wheelchair_entrance")
+            return Place.objects.create(
+                place_id=details["place_id"],
+                name=details["name"],
+                address=details["address"],
+                lat=details["lat"],
+                lng=details["lng"],
+                wheelchair_entrance=wheelchair_flag
+            )
     def get(self, request, *args, **kwargs):
         tr=self._get_request(kwargs, request.user)
-        return Response({"selected_place_ids":tr.selected_places})
+        selected=list(tr.selected_places.values_list('place_id', flat=True))
+        return Response({"selected_place_ids":selected})
+
     def post(self, request, *args, **kwargs):
-        # 1) TravelRequest 객체 가져오기
         tr = self._get_request(kwargs, request.user)
-        # 2) 선택된 장소들 받기
-        selected_place_ids = request.data.get('selected_place_ids', [])
-        if not self._validate_list(selected_place_ids):
+        ids = request.data.get('selected_place_ids', [])
+        if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
             return Response(
                 {"result": "error", "message": "Invalid selected_places format. Expected a list of dictionaries."},
                 status=status.HTTP_400_BAD_REQUEST
             )
+        place_objs = []
+        for pid in ids:
+            place = self._ensure_place(pid)
+            if place:
+                place_objs.append(place)
+            else:
+                logger.warning(f"Place details not found or not accessible for place_id {pid}")
 
-        # 3) 선택된 장소들을 TravelRequest에 저장
-        tr.selected_places = selected_place_ids
-        tr.save(update_fields=['selected_places'])
-
+        # M2M 전체 교체
+        tr.selected_places.set(place_objs)
         return Response(
-            {"result": "success", "message": "Selected place_ids saved successfully.",
-                   "selected": tr.selected_places},
+            {"result": "success",
+             "selected_place_ids": [p.place_id for p in place_objs]},
             status=status.HTTP_200_OK
         )
     put=post
+
     def patch(self, request, *args, **kwargs):
         tr = self._get_request(kwargs, request.user)
-        current=set(tr.selected_places or [])
-
         to_add = request.data.get('add',[])
         to_remove = request.data.get('remove',[])
-        if not self._validate_list(to_add) or not self._validate_list(to_remove):
+        if not isinstance(to_add, list) or not isinstance(to_remove, list):
             return Response(
                 {"result": "error", "message": "Invalid add/remove"},
                  status=status.HTTP_400_BAD_REQUEST
             )
-        current |= set(to_add)
-        current -= set(to_remove)
-        tr.selected_places = list(current)
-        tr.save(update_fields=['selected_places'])
-        return Response({"result": "success", "message": "Selected place_ids updated successfully.",
-                         "selected": tr.selected_places})
+        # add: Place 인스턴스 확보 후 M2M 추가
+        for pid in to_add:
+            place = self._ensure_place(pid)
+            if place:
+                tr.selected_places.add(place)
+
+        # remove: 이미 DB에 존재하는 것만 제거
+        existing = Place.objects.filter(place_id__in=to_remove)
+        if existing:
+            tr.selected_places.remove(*existing)
+
+        current = list(tr.selected_places.values_list('place_id', flat=True))
+        return Response(
+            {"result": "success", "selected_place_ids": current},
+            status=status.HTTP_200_OK
+        )
 
     def delete(self, request, *args, **kwargs):
         tr = self._get_request(kwargs, request.user)
-        tr.selected_places=[]
-        tr.save(update_fields=['selected_places'])
-        return Response({"result": "success", "message": "Selected place_ids deleted successfully."})
+        tr.selected_places.clear()
+        return Response(
+            {"result": "success", "selected_place_ids": []},
+            status=status.HTTP_200_OK
+        )

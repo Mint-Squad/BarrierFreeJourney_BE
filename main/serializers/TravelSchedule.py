@@ -1,12 +1,22 @@
 from rest_framework import serializers
-from main.models.models import TravelSchedule, ScheduleItem
+from main.models.models import TravelSchedule, ScheduleItem, Place
 
+
+class PlaceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Place
+        fields = [
+            "place_id", "name", "address", "lat", "lng",
+            "wheelchair_entrance", "updated_at",
+        ]
+        read_only_fields = fields
 class ScheduleItemSerializer(serializers.ModelSerializer):
+    place=PlaceSerializer(read_only=True)
     class Meta:
         model = ScheduleItem
-        fields = ['id', 'place_name', 'place_id', 'date',
-                  'start_time', 'end_time', 'lat', 'lng',
-                  'transport_type', 'address']
+        fields = ['id', 'place', 'date',
+                  'start_time', 'end_time',
+                  'transport_type']
         read_only_fields = fields
 
 class TravelScheduleSerializer(serializers.ModelSerializer):

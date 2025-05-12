@@ -2,12 +2,17 @@ import google.generativeai as genai
 from django.conf import settings
 import json
 import logging
-from .places_api import find_places_by_text_search, get_place_details_with_wheelchair_info
+# get_place_details_with_wheelchair_info는 find_places_by_text_search 내부에서 사용됨
+# gemini_api에서는 find_places_by_text_search와 사용자 선택 장소 처리를 위한 get_place_details_with_wheelchair_info를 임포트
+from .places_api import find_places_by_text_search, get_place_details_with_wheelchair_info as get_place_details_from_api
 from datetime import timedelta
+
+# googlemaps 클라이언트는 places_api.py에서 주로 사용되지만, 여기서도 필요시 초기화 가능
+# (현재는 get_place_details_from_api가 places_api.py의 gmaps를 사용하므로 직접 필요 없음)
 
 logger = logging.getLogger(__name__)
 
-# 각 관심사에 대한 Google Places API type 매핑
+# INTEREST_TO_PLACE_TYPE_MAP, DEFAULT_PLACE_API_LIMIT_PER_QUERY, GEMINI_SUGGESTED_QUERY_COUNT 등은 이전과 동일
 INTEREST_TO_PLACE_TYPE_MAP = {
     "맛집 탐방": ["restaurant", "meal_delivery", "meal_takeaway", "bakery"],
     "전시": ["museum", "art_gallery"],
@@ -25,28 +30,20 @@ INTEREST_TO_PLACE_TYPE_MAP = {
     "시장": ["store", "point_of_interest"],
     "번화가": ["night_club", "bar", "restaurant", "store"],
 }
-DEFAULT_PLACE_API_LIMIT_PER_QUERY = 3  # 각 검색어당 가져올 장소 수 (테스트를 위해 줄임)
-GEMINI_SUGGESTED_QUERY_COUNT = 3  # Gemini에게 요청할 검색어 제안 개수
+DEFAULT_PLACE_API_LIMIT_PER_QUERY = 3
+GEMINI_SUGGESTED_QUERY_COUNT = 3  # API 호출 줄이기 위해 1로 유지 또는 조절
 
 
-# --- 새로운 함수: Gemini를 사용하여 검색어 제안 ---
 def suggest_search_queries_by_gemini(interest, mood, city, travel_request):
-    """
-    Gemini를 사용하여 특정 관심사, 분위기, 도시에 맞는 Places API 검색어를 제안받습니다.
-    """
+    # ... (이전과 동일, 오류 없음) ...
     if not settings.GEMINI_API_KEY:
         logger.error("Gemini API Key for query suggestion is not configured.")
-        return []  # API 키 없으면 빈 리스트 반환
-
+        return []
     try:
-        # 이 함수 내에서만 사용할 Gemini 모델 인스턴스 생성
-        # genai.configure는 generate_travel_schedule_from_gemini 등 다른 곳에서 이미 호출될 수 있으므로,
-        # 여기서는 모델 직접 생성 시도
         model = genai.GenerativeModel('gemini-1.5-flash-latest')
     except Exception as e:
         logger.error(f"Failed to initialize Gemini model for query suggestion: {e}")
         return []
-
     prompt = f"""
     You are a creative travel assistant.
     A user is planning a trip to {city} and has the following preferences:
@@ -59,15 +56,15 @@ def suggest_search_queries_by_gemini(interest, mood, city, travel_request):
     that can be used with Google Places API to find suitable places in {city}
     matching the primary interest '{interest}' and mood '{mood}'.
     The queries should be creative and aim to find unique or interesting places.
-    Avoid overly generic queries.
+    Avoid overly generic queries. Prioritize places likely to be wheelchair accessible if possible, but do not explicitly state wheelchair accessibility in the query itself.
 
     Return the suggestions as a JSON list of strings. For example:
-    ["hidden gem local restaurants for a quiet dinner", "artisanal coffee shops with a cozy vibe"]
+    ["popular local food spots with spacious seating", "art museums with step-free access"]
     Ensure the output is ONLY the JSON list.
     """
     generation_config = genai.types.GenerationConfig(
         response_mime_type="application/json",
-        temperature=0.75  # 창의성을 위해 약간 높임
+        temperature=0.8
     )
     try:
         response = model.generate_content(prompt, generation_config=generation_config)
@@ -78,57 +75,55 @@ def suggest_search_queries_by_gemini(interest, mood, city, travel_request):
                 return suggested_queries
             else:
                 logger.warning(f"Gemini returned unexpected format for suggested queries: {response.text}")
-                return []
         else:
             logger.warning(
                 f"Gemini returned no text for suggested queries (Interest: {interest}, Mood: {mood}, City: {city}).")
-            return []
     except json.JSONDecodeError:
         logger.error(
             f"Failed to parse JSON from Gemini suggested queries: {response.text if hasattr(response, 'text') else 'No text in response'}")
-        return []
     except Exception as e:
         logger.error(
             f"Error getting search_queries from Gemini (Interest: {interest}, Mood: {mood}, City: {city}): {e}")
-        return []
+    return []
 
 
 def generate_place(travel_request):
+    """
+    여행 후보지를 생성합니다. places_api.py의 find_places_by_text_search를 사용하므로,
+    반환되는 장소들은 이미 wheelchair_entrance가 False가 아닌 것으로 필터링되어 있고,
+    기본 정보와 'wheelchair_details' (내부에 'wheelchair_entrance' 포함)를 포함합니다.
+    """
     if not (hasattr(settings, 'GOOGLE_PLACES_API_KEY') and settings.GOOGLE_PLACES_API_KEY):
         logger.error("Google Places API Key is not configured in Django settings.")
         raise ValueError("Google Places API Key is not configured.")
 
-    all_fetched_places = []
-    logger.info(f"Starting to fetch real places for TR ID {travel_request.id}...")
+    all_candidate_places = []
+    # 여러 검색어로 인해 동일 장소가 나올 수 있으므로, 최종적으로 unique한 장소만 반환하기 위해 set 사용
+    processed_place_ids_for_this_run = set()
+    logger.info(f"Starting to fetch candidate places for TR ID {travel_request.id}...")
 
     for city in travel_request.cities:
         for interest in travel_request.interests:
             place_types_for_interest = INTEREST_TO_PLACE_TYPE_MAP.get(interest, [])
             for mood in travel_request.mood:
                 search_queries_for_combo = []
-
-                # 1. 직접 조합 검색어
                 direct_query = f"{mood} {interest}"
                 search_queries_for_combo.append({"query": direct_query, "method": "direct_combination"})
 
-                # 2. Gemini 제안 검색어 (선택적, API 호출량 고려)
-                if settings.GEMINI_API_KEY:  # Gemini API 키가 있을 때만 시도
+                if settings.GEMINI_API_KEY:
                     gemini_suggested = suggest_search_queries_by_gemini(interest, mood, city, travel_request)
                     for g_query in gemini_suggested:
                         search_queries_for_combo.append({"query": g_query, "method": "gemini_suggested"})
-                else:
-                    logger.info("Skipping Gemini query suggestion as GEMINI_API_KEY is not set.")
 
                 for query_info in search_queries_for_combo:
                     current_query = query_info["query"]
                     search_method = query_info["method"]
-
                     try:
-                        logger.debug(f"Calling find_places_by_text_search for TR ID {travel_request.id}: "
-                                     f"query='{current_query}' ({search_method}), city='{city}', type(s)='{place_types_for_interest}', "
-                                     )
+                        logger.debug(
+                            f"Finding places for TR ID {travel_request.id}: query='{current_query}' ({search_method}), city='{city}'")
 
-                        places_found = find_places_by_text_search(
+                        # find_places_by_text_search는 이제 휠체어 필터링된 장소 목록 (상세 정보 포함)을 반환
+                        places_found_for_current_query = find_places_by_text_search(
                             query_text=current_query,
                             city_name=city,
                             type_filter=place_types_for_interest,
@@ -137,67 +132,72 @@ def generate_place(travel_request):
                             radius=None
                         )
 
-                        for place_data in places_found:
-                            place_data['searched_interest'] = interest
-                            place_data['searched_mood'] = mood
-                            place_data['searched_types_by_interest'] = place_types_for_interest
-                            place_data['original_search_query'] = current_query  # 실제 사용된 검색어
-                            place_data['search_method'] = search_method  # 검색 방식
+                        # Add metadata to each place found by this query
+                        for place_data in places_found_for_current_query:  # place_data는 이미 상세 정보를 포함
+                            place_id = place_data.get('place_id')
+                            # 이전에 다른 검색어로 이미 추가된 장소가 아니라면 추가
+                            if place_id and place_id not in processed_place_ids_for_this_run:
+                                place_data['searched_interest'] = interest
+                                place_data['searched_mood'] = mood
+                                place_data['searched_types_by_interest'] = place_types_for_interest
+                                place_data['original_search_query'] = current_query
+                                place_data['search_method'] = search_method
+                                all_candidate_places.append(place_data)
+                                processed_place_ids_for_this_run.add(place_id)
 
-
-                        all_fetched_places.extend(places_found)
                         logger.debug(
-                            f"Found {len(places_found)} places for query='{current_query}' ({search_method}), city='{city}'")
+                            f"Found and processed {len(places_found_for_current_query)} wheelchair-accessible places for query='{current_query}'")
 
                     except (ValueError, ConnectionAbortedError, RuntimeError) as e:
                         logger.error(
-                            f"API or Config error during Places API call (query: '{current_query}', method: {search_method}, TR ID {travel_request.id}): {e}")
-                        pass
-                    except Exception as e:
+                            f"API or Config error during place search (query: '{current_query}', TR ID {travel_request.id}): {e}")
+                        pass  # 개별 검색 실패는 전체를 중단시키지 않음
+                    except Exception as e:  # 예상치 못한 다른 에러 (예: KeyError 등)
                         logger.error(
                             f"Unexpected error in generate_place (query: '{current_query}', method: {search_method}, TR ID {travel_request.id}): {e}")
-                        pass
+                        pass  # 개별 검색 실패는 전체를 중단시키지 않음
 
+    # all_candidate_places는 이미 unique한 place_id를 가진 장소들로 구성됨 (processed_place_ids_for_this_run 덕분에)
     logger.info(
-        f"Fetched a total of {len(all_fetched_places)} places (before deduplication) for TR ID {travel_request.id}.")
+        f"Generated {len(all_candidate_places)} unique, wheelchair-accessible candidate places for TR ID {travel_request.id}.")
 
-    seen_ids = set()
-    unique_places = []
-    for place in all_fetched_places:
-        pid = place.get("place_id")
-        if pid and pid not in seen_ids:
-            seen_ids.add(pid)
-            unique_places.append(place)
-    logger.info(f"Number of unique places found for TR ID {travel_request.id}: {len(unique_places)}")
+    if not all_candidate_places:
+        logger.warning(f"No unique, wheelchair-accessible candidate places found for TR ID {travel_request.id}.")
 
-    if not unique_places:
-        logger.warning(f"No unique real places found from Places API for TR ID {travel_request.id}.")
-        # ─── 휠체어 진입 가능 필터 적용 ───
-        filtered_places = []
-        for p in unique_places:
-            details = get_place_details_with_wheelchair_info(p["place_id"])
-            # details가 None 이면 접근 불가(False/없음)이므로 걸러짐
-            if details and details.get("wheelchair_entrance") is True:
-                # 원본 p에 추가 정보를 합치고 싶으면 여기서 merge 가능
-                p["wheelchair_entrance"] = True
-                filtered_places.append(p)
-        logger.info(f"Number of wheelchair-accessible places after filter: {len(filtered_places)}")
+    # 이전의 불필요한 필터링 로직 제거
+    # (find_places_by_text_search가 이미 필터링 및 상세 정보 조회를 완료함)
 
-    places_json = json.dumps(unique_places, ensure_ascii=False)
+    places_json = json.dumps(all_candidate_places, ensure_ascii=False)
     return places_json
 
 
-# generate_travel_schedule_from_gemini 함수는 이전 답변과 동일하게 유지
-# (내부에서 generate_place를 호출하고 그 결과를 사용)
+def get_full_details_for_user_selected_place(place_id, language='ko'):
+    """
+    사용자가 선택한 place_id에 대해 places_api.get_place_details_from_api를 호출하여
+    기본 정보와 휠체어 입구 접근성 정보를 가져옵니다.
+    wheelchair_entrance가 False가 아니면 상세 정보를 반환합니다.
+    """
+    # places_api의 수정된 함수를 직접 호출
+    full_details = get_place_details_from_api(place_id, language=language)  # 임포트 시 이름 변경
+
+    if not full_details:  # get_place_details_from_api가 None을 반환하면 (접근 불가 또는 오류)
+        logger.warning(
+            f"User selected place {place_id} details could not be fetched or is not wheelchair accessible at entrance.")
+        return None
+
+    # full_details는 이미 필요한 모든 정보를 포함 (wheelchair_entrance가 False가 아닌 경우)
+    return full_details
+
+
 def generate_travel_schedule_from_gemini(travel_request):
     if not settings.GEMINI_API_KEY:
-        logger.error("Gemini API Key for schedule generation is not configured in settings.")
+        logger.error("Gemini API Key for schedule generation is not configured.")
         raise ValueError("Gemini API Key for schedule generation is not configured.")
 
-    genai.configure(api_key=settings.GEMINI_API_KEY)
     model_name = 'gemini-1.5-flash-latest'
     try:
-        genai.configure(api_key=settings.GEMINI_API_KEY)
+        if not genai.get_model(model_name):
+            genai.configure(api_key=settings.GEMINI_API_KEY)
         model = genai.GenerativeModel(model_name)
     except Exception as e:
         logger.error(f"Failed to initialize Gemini model ({model_name}) for schedule generation: {e}")
@@ -210,70 +210,113 @@ def generate_travel_schedule_from_gemini(travel_request):
         current_date += timedelta(days=1)
 
     if not travel_dates:
-        logger.error(f"Invalid travel period for TravelRequest ID {travel_request.id}: start_date > end_date.")
-        raise ValueError("Invalid travel period: Start date must be before or same as end date.")
+        logger.error(f"Invalid travel period for TR ID {travel_request.id}")
+        raise ValueError("Invalid travel period.")
 
+    user_selected_place_ids_raw = list(
+                travel_request.selected_places.values_list('place_id', flat=True)
+        )
+    mandatory_places_info = []
+    if user_selected_place_ids_raw:
+        logger.info(
+            f"Processing {len(user_selected_place_ids_raw)} user selected place_ids for TR ID {travel_request.id}")
+        for place_id in user_selected_place_ids_raw:
+            full_detailed_info = get_full_details_for_user_selected_place(place_id)
+            if full_detailed_info:
+                mandatory_places_info.append(full_detailed_info)
+            # else: 로깅은 get_full_details_for_user_selected_place 내부에서 처리
+
+    logger.info(
+        f"Found {len(mandatory_places_info)} mandatory (user-selected, wheelchair entrance accessible) places for TR ID {travel_request.id}.")
+
+    additional_candidate_places_for_schedule = []
     try:
-        places_json_str = generate_place(travel_request)  # generate_place가 JSON 문자열 반환
-    except (ValueError, ConnectionAbortedError, RuntimeError) as e:
-        logger.error(f"Failed to generate places for Gemini schedule prompt (TR ID {travel_request.id}): {e}")
-        # View에서 이 오류를 잡아서 사용자에게 알리거나, 여기서 기본 오류 JSON 반환
-        # raise # View에서 처리하도록 다시 발생시키는 것이 더 좋을 수 있음
-        # 또는 Gemini에게 빈 장소 목록을 전달하고 Gemini가 오류 메시지 생성하도록 함
-        places_json_str = json.dumps(
-            {"schedule_items": [], "error_message": f"Could not retrieve place information: {e}"})
+        candidate_places_json_str = generate_place(travel_request)
+        all_candidate_places_from_generate_place = json.loads(candidate_places_json_str)
+
+        mandatory_ids_set = {p['place_id'] for p in mandatory_places_info}
+        additional_candidate_places_for_schedule = [
+            p for p in all_candidate_places_from_generate_place if p['place_id'] not in mandatory_ids_set
+        ]
+        logger.info(
+            f"Prepared {len(additional_candidate_places_for_schedule)} additional candidate places for TR ID {travel_request.id}.")
+    except Exception as e:  # 좀 더 포괄적인 예외 처리
+        logger.error(f"Failed to generate or process additional candidate places for TR ID {travel_request.id}: {e}")
+
+    if not mandatory_places_info and not additional_candidate_places_for_schedule:
+        logger.warning(
+            f"No mandatory places and no additional candidates for TR ID {travel_request.id}. Cannot generate schedule.")
+        return json.dumps({"schedule_items": [],
+                           "error_message": "휠체어 접근 가능한 장소를 찾을 수 없어 일정을 생성할 수 없습니다. 선택한 장소를 확인하거나 여행 요청을 수정해주세요."})
+
+    mandatory_places_for_prompt_str = json.dumps(mandatory_places_info, ensure_ascii=False)
+    additional_candidates_for_prompt_str = json.dumps(additional_candidate_places_for_schedule, ensure_ascii=False)
 
     prompt = f"""
-    You are a travel planning assistant.
-    Your task is to create a travel itinerary based on the User's Travel Request Details using ONLY the places provided in the "List of Real, Verified Places" below.
-    If the "List of Real, Verified Places" is empty or contains too few places to build a meaningful itinerary, you MUST respond with a JSON object containing an empty "schedule_items" list and an "error_message" field explaining that not enough places were found.
+    You are a meticulous and thoughtful travel planning assistant specializing in wheelchair-accessible itineraries.
+    Create a detailed, accessible itinerary for the user’s trip, balancing 2–3 activities per day.
 
-    List of Real, Verified Places (fetched from Google Maps API):
-    {places_json_str} 
-
-    **Instructions for building the itinerary:**
-    - Use ONLY the places from the list above. Do NOT invent any other venues.
-    - Each item in the "schedule_items" list MUST correspond to one of the places in the "List of Real, Verified Places".
-    - The "place_id" in your schedule item MUST be the "place_id" from the list.
-    - The "place_name", "lat", "lng", and "address" in your schedule item MUST come directly from the corresponding place in the list.
-    - Assign a "date" (from the travel period), "start_time", "end_time", and "transport_type" for each selected place.
-
-    User's Travel Request Details:
+    User Travel Request:
     - Country: {travel_request.country}
     - Cities: {', '.join(travel_request.cities)}
-    - Travel Period: From {travel_request.start_date.strftime('%Y-%m-%d')} to {travel_request.end_date.strftime('%Y-%m-%d')} (Available dates for schedule: {', '.join(travel_dates)})
-    - Interests: {', '.join(travel_request.interests) if travel_request.interests else 'Not specified'}
-    - Desired Mood: {', '.join(travel_request.mood) if travel_request.mood else 'Not specified'}
-    - Preferred Transportation: {', '.join(travel_request.transportation) if travel_request.transportation else 'Not specified'}
-    - Max Travel Distance per day (if applicable): {travel_request.max_distance} km
+    - Dates: {travel_dates[0]} to {travel_dates[-1]} (days: {', '.join(travel_dates)})
+    - Interests: {', '.join(travel_request.interests) or 'None'}
+    - Mood: {', '.join(travel_request.mood) or 'None'}
+    - Transport: {', '.join(travel_request.transportation) or 'None'}
+
+    1) **Mandatory Places** (must include all of these. Each place object includes "place_id", "name", "lat", "lng", "address", "types", "rating", "website", "opening_hours_text", and "wheelchair_details" which contains "wheelchair_entrance" (guaranteed to be not False)):
+    {mandatory_places_for_prompt_str}
+
+    2) **Additional Candidate Places** (Consider these if the schedule needs more activities. These also include full details similar to Mandatory Places, with "wheelchair_details" confirming "wheelchair_entrance" is not False):
+    {additional_candidates_for_prompt_str}
+
+    **Key Instructions for Itinerary Creation:**
+    1.  **Wheelchair Accessibility is Paramount:**
+        -   ALL scheduled places MUST be suitable for wheelchair users. The provided lists are pre-filtered so "wheelchair_details.wheelchair_entrance" is NOT false.
+        -   The "wheelchair_details" key in each place object currently only confirms "wheelchair_entrance". For other facilities (restrooms, parking, seating), you may need to make reasonable inferences based on place "types" (e.g., a 'museum' or 'shopping_mall' is more likely to have accessible restrooms than a small 'store'). Clearly state if information beyond entrance accessibility is an assumption or if "wheelchair_details.wheelchair_entrance" was null (meaning unknown, not confirmed false).
+    2.  **Incorporate User's Selected Places:** Integrate all "Mandatory Places" naturally into the itinerary.
+    3.  **Utilize Additional Candidates:** If "Mandatory Places" are few, or to enrich the schedule, select suitable places from "Additional Candidate Places".
+    4.  **Balanced Schedule Across Full Duration:** Distribute activities evenly from the start_date to the end_date. Ensure the last day (end_date) also has appropriate activities.
+    5.  **Include Evening Activities:** Plan for activities or dining options for the evening (e.g., 18:00 - 21:00 or later if appropriate). These should also be wheelchair accessible.
+    6.  **Pacing and Variety:** Aim for a comfortable pace, typically 2-3 main activities per day, with adequate time for travel and rest. Mix types of activities.
+    7.  **Logical Flow and Minimized Travel:** Group nearby attractions. Suggest efficient, accessible routes.
+    8.  **Single Visit Principle:** Each distinct place should ideally be visited only once.
+    9.  **Transportation:** Suggest appropriate wheelchair-friendly transportation.
 
     **Output Format:**
     The entire response MUST be a single valid JSON object.
-    The JSON object should have a key "schedule_items" which is a list of schedule item objects.
-    If you cannot create a schedule (e.g., no places provided or too few), "schedule_items" should be an empty list, and you MUST include an "error_message" field.
+    The JSON object MUST have a key "schedule_items" which is a list of schedule item objects.
+    Each schedule item object MUST contain:
+    -   "place_id": string (from the provided lists)
+    -   "place_name": string (from the provided lists)
+    -   "date": string (YYYY-MM-DD format, within the travel period)
+    -   "start_time": string (HH:MM format, e.g., "10:00")
+    -   "end_time": string (HH:MM format, e.g., "12:00")
+    -   "lat": float (latitude from the provided lists)
+    -   "lng": float (longitude from the provided lists)
+    -   "address": string (full address from the provided lists)
+    -   "transport_type": string
+    
+    If a meaningful, accessible itinerary cannot be formed, "schedule_items" should be an empty list, and you MUST include an "error_message" field.
 
-    Example of a single schedule item object (using data from the provided list):
+    Example of a single schedule item:
     {{
-        "place_name": "Name From List",
-        "place_id": "PlaceID From List",
+        "place_id": "ChIJ...",
+        "place_name": "Example Museum",
         "date": "{travel_dates[0] if travel_dates else 'YYYY-MM-DD'}",
         "start_time": "10:00",
-        "end_time": "12:00",
-        "lat": 12.3456, // Latitude From List
-        "lng": 78.9012, // Longitude From List
-        "transport_type": "walk",
-        "address": "Full Address From List"
+        "end_time": "12:30",
+        "lat": 37.12345,
+        "lng": 127.12345,
+        "address": "123 Example Street, Seoul",
+        "transport_type": "accessible taxi",
+        "description": "Explore modern art exhibits.",
+        "wheelchair_accessibility_notes": "Wheelchair entrance: True. Accessible restrooms are typically available in large museums."
     }}
 
-    Example of response if no places are found or schedule cannot be made:
-    {{
-        "schedule_items": [],
-        "error_message": "Not enough relevant places were found based on your request to create a schedule."
-    }}
-
-    Generate a plausible and enjoyable itinerary. Ensure all dates are within the travel period.
-    Do not include any other text, explanations, or markdown formatting outside the main JSON object.
+    Generate a plausible, enjoyable, and fully wheelchair-accessible itinerary.
     """
+    # ... (이하 Gemini API 호출 및 응답 처리 로직은 이전과 동일) ...
     generation_config = genai.types.GenerationConfig(
         response_mime_type="application/json"
     )
@@ -281,8 +324,8 @@ def generate_travel_schedule_from_gemini(travel_request):
     logger.info(f"Sending prompt to Gemini for TR ID {travel_request.id} for schedule generation.")
     try:
         response = model.generate_content(prompt, generation_config=generation_config)
-
         gemini_response_text = None
+
         if hasattr(response, 'text') and response.text:
             gemini_response_text = response.text
         elif response.candidates and response.candidates[0].content.parts:
@@ -292,6 +335,17 @@ def generate_travel_schedule_from_gemini(travel_request):
             logger.error(f"Gemini schedule response for TR ID {travel_request.id} is empty or unparsable.")
             return json.dumps(
                 {"schedule_items": [], "error_message": "AI service failed to generate a schedule response."})
+
+        try:
+            parsed_response = json.loads(gemini_response_text)
+            if "schedule_items" not in parsed_response:
+                logger.error(
+                    f"Gemini response for TR ID {travel_request.id} is missing 'schedule_items' key. Response: {gemini_response_text[:500]}")
+                return json.dumps({"schedule_items": [], "error_message": "AI 서비스가 반환한 일정 형식이 올바르지 않습니다."})
+        except json.JSONDecodeError:
+            logger.error(
+                f"Failed to parse JSON from Gemini schedule response for TR ID {travel_request.id}. Response: {gemini_response_text[:500]}")
+            return json.dumps({"schedule_items": [], "error_message": "AI 서비스가 반환한 일정 정보를 처리할 수 없습니다."})
 
         logger.info(
             f"Received schedule response from Gemini for TR ID {travel_request.id} (first 200 chars): {gemini_response_text[:200]}")
