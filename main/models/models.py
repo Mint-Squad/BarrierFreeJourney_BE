@@ -1,3 +1,5 @@
+from email.policy import default
+
 from django.db import models
 from django.contrib.auth.models import User
 # Create your models here.
@@ -17,6 +19,8 @@ class TravelRequest(models.Model):
     interests=models.JSONField(default=list)
     mood=models.JSONField(default=list)
 
+    selected_places=models.JSONField(blank=True, null=True, default=list,
+                          help_text="유저가 후보지 리스트에서 선택한 장소 정보를 JSON 형태로 저장")
     created_at=models.DateTimeField(auto_now_add=True)
 
 class TravelSchedule(models.Model):

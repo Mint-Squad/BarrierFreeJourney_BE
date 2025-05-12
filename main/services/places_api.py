@@ -30,49 +30,71 @@ def find_places_by_text_search(
         logger.error("GOOGLE_PLACES_API_KEY is not configured.")
         raise ValueError("Google PLACES API Key is not configured.")
 
-    # 기본 검색 쿼리 생성
-    search_query = f"{query_text} in {city_name}" if city_name else query_text
-
+    base_query_for_logging = query_text  # 로깅용
     all_results = []
     next_token = None
-    actual_max_pages = min(max_pages, 3)  # API 제한 고려
+    actual_max_pages: int = min(max_pages, 3)  # API 제한 고려
     for page_num in range(actual_max_pages):
         try:
             if location and radius:
+                # Nearby Search
+                # Nearby Search는 단일 type만 지원하므로, type_filter가 리스트면 첫 번째 것 사용
+                nearby_search_type = None
+                if isinstance(type_filter, list) and type_filter:
+                    nearby_search_type = type_filter[0]
+                elif isinstance(type_filter, str):
+                    nearby_search_type = type_filter
+
                 logger.info(
-                    f"Calling Google Places Nearby Search:location={location}, radius={radius}, keyword='{search_query}', type='{type_filter}', page_token='{next_token}'")
-                res = gmaps.places_nearby(
+                    f"Calling Google Places Nearby Search:location={location}, radius={radius}, keyword='{query_text}', type='{nearby_search_type}', page_token='{next_token}'")
+                response = gmaps.places_nearby(
                     location=location,
                     radius=radius,
-                    keyword=search_query,
-                    type=type_filter,
+                    keyword=query_text,
+                    type=nearby_search_type,
                     language=language,
                     page_token=next_token
                 )
             else:
+                # Text Search
+                # Text Search 쿼리에 city_name과 type_filter를 명시적으로 포함
+                text_search_query = query_text
+                if city_name:
+                    text_search_query = f"{text_search_query} in {city_name}"
+
+                # Text Search는 type 파라미터를 직접 받거나, 쿼리에 포함할 수 있음.
+                # 여기서는 type 파라미터를 사용. 리스트일 경우 첫 번째 타입 사용.
+                text_search_type_param = None
+                if isinstance(type_filter, list) and type_filter:
+                    text_search_type_param = type_filter[0]  # Text Search도 여러 타입 동시 지원 안 함 (OR 조건은 쿼리에 명시)
+                elif isinstance(type_filter, str):
+                    text_search_type_param = type_filter
+
                 logger.info(
-                    f"Calling Google Places Text Search: query='{search_query}', type='{type_filter}', page_token='{next_token}'")
+                    f"Calling Google Places Text Search: query='{text_search_query}', type='{text_search_type_param}', page_token='{next_token}'"
+                )
                 response = gmaps.places(
-                    query=search_query,
+                    query=text_search_query,
+                    type=text_search_type_param,  # type 파라미터 사용
                     language=language,
                     page_token=next_token
                 )
         except ApiError as e:
             logger.error(
-                f"Google Maps API Error (page {page_num + 1}) for '{search_query}': {e.status} - {e.message}")
+                f"Google Maps API Error (page {page_num + 1}) for '{base_query_for_logging}': {e.status} - {e.message}")
             if e.status == "REQUEST_DENIED":
                 raise ConnectionAbortedError(
             f"Google Maps API Request Denied: {e.message}. Check API key permissions and billing.")
             break  # API 오류 시 더 이상 페이지 요청 중단
         except Timeout:
-            logger.error(f"Google Maps API Timeout (page {page_num + 1}) for '{search_query}'.")
+            logger.error(f"Google Maps API Timeout (page {page_num + 1}) for '{base_query_for_logging}'.")
             break
         except TransportError as e:
-            logger.error(f"Google Maps API Transport Error (page {page_num + 1}) for '{search_query}': {e}")
+            logger.error(f"Google Maps API Transport Error (page {page_num + 1}) for '{base_query_for_logging}': {e}")
             break
         except Exception as e:  # 기타 예외
             logger.exception(
-                f"Unexpected error calling Google Maps API (page {page_num + 1}) for '{search_query}': {e}")
+                f"Unexpected error calling Google Maps API (page {page_num + 1}) for '{base_query_for_logging}': {e}")
             break
 
 
@@ -82,7 +104,7 @@ def find_places_by_text_search(
             break
 
         if page_num < actual_max_pages - 1:  # 마지막 페이지 요청이 아닐 경우에만 sleep
-            logger.debug(f"Waiting for next_page_token to activate for query '{search_query}'...")
+            logger.debug(f"Waiting for next_page_token to activate for query '{base_query_for_logging}'...")
             time.sleep(2)  # next_page_token 활성화 대기 (API 권장 사항)
 
     processed = []
@@ -108,5 +130,5 @@ def find_places_by_text_search(
         if len(processed) >= limit:
             break
 
-    logger.info(f"find_places_by_text_search → returned {len(processed)} places for '{search_query}'")
+    logger.info(f"find_places_by_text_search → returned {len(processed)} places for '{base_query_for_logging}'")
     return processed

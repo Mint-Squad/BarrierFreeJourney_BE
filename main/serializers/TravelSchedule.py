@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from main.models.models import TravelRequest, TravelSchedule, ScheduleItem
+from main.models.models import TravelSchedule, ScheduleItem
 
 class ScheduleItemSerializer(serializers.ModelSerializer):
     class Meta:

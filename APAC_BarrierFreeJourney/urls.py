@@ -16,6 +16,8 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path
+
+from main.views.TravelCandidates import TravelCandidatesListView, TravelCandidatesSelectView
 from main.views.TravelRequest import TravelRequestCreateView, TravelRequestDetailView
 from main.views.TravelSchedule import TravelScheduleCreateView, TravelScheduleListView,TravelScheduleDetailView
 
@@ -25,6 +27,9 @@ urlpatterns = [
     path('travel/request/<int:request_id>/', TravelRequestDetailView.as_view(), name='travel-request-detail'),
     path('travel/schedule/',TravelScheduleCreateView.as_view(), name='travel-schedule-create'),
     path('travel/schedule/<int:request_id>/', TravelScheduleListView.as_view(), name='travel-schedule-list'),
-    path('travel/schedule/<int:request_id>/<int:version>/', TravelScheduleDetailView.as_view(), name='travel-schedule-detail')
+    path('travel/schedule/<int:request_id>/<int:version>/', TravelScheduleDetailView.as_view(), name='travel-schedule-detail'),
+    path('travel/schedule/candidates/<int:request_id>/', TravelCandidatesListView.as_view(), name='travel-candidate-list'),
+    path('travel/schedule/select/<int:request_id>/', TravelCandidatesSelectView.as_view(), name='travel-candidate-select'),
+
 
     ]
