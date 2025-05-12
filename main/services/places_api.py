@@ -25,11 +25,13 @@ def find_places_by_text_search(
 ):
     """
     Text Search API 또는 Nearby Search API를 사용해 실존 장소를 검색
+    휠체어 접근성 정보를 포함하고, 접근 불가 장소는 필터링.
     """
     if not settings.GOOGLE_PLACES_API_KEY:
         logger.error("GOOGLE_PLACES_API_KEY is not configured.")
         raise ValueError("Google PLACES API Key is not configured.")
 
+    # 요청할 필드 목록에 wheelchair_accessible_entrance 추가
     base_query_for_logging = query_text  # 로깅용
     all_results = []
     next_token = None
@@ -109,26 +111,67 @@ def find_places_by_text_search(
 
     processed = []
     for place in all_results:
-        name = place.get('name')
         place_id = place.get('place_id')
-        loc = place.get('geometry', {}).get('location', {})
-        lat = loc.get('lat')
-        lng = loc.get('lng')
-        if not all([name, place_id, lat is not None, lng is not None]):
-            logger.warning(f"Skipping incomplete place: {name}")
+        if not place_id:
             continue
 
+        # 상세 정보 호출, 이때 wheelchair_entrance == True인 경우에만 dict 반환
+        details = get_place_details_with_wheelchair_info(place_id, language=language)
+        if not details or details.get("wheelchair_entrance") is not True:
+            # None 이거나, 접근 불가(False), 정보 미존재(None) 모두 제외
+            continue
+
+        # 필요한 정보만 가공해서 결과에 추가
         processed.append({
-            "place_name": name,
-            "place_id": place_id,
-            "lat": lat,
-            "lng": lng,
-            "address": place.get('formatted_address', '주소 정보 없음'),
-            "types": place.get('types', []),
-            "rating": place.get('rating'),
+            "place_id": details["place_id"],
+            "place_name": details["name"],
+            "lat": details.get("lat"),
+            "lng": details.get("lng"),
+            "address": details.get("address"),
+            "wheelchair_details": details,
+            # 필요하면 types, rating 등 추가 필드도 포함
         })
         if len(processed) >= limit:
             break
 
     logger.info(f"find_places_by_text_search → returned {len(processed)} places for '{base_query_for_logging}'")
     return processed
+
+# Place Details를 호출하여 상세 정보(휠체어 포함)를 가져오는 헬퍼 함수 추가
+def get_place_details_with_wheelchair_info(place_id, language='ko'):
+    """
+    주어진 place_id에 대해 Place Details API를 호출하여 상세 정보와 휠체어 접근성 정보를 가져옵니다.
+    """
+    if not gmaps:
+        logger.error("Google Maps client is not initialized. Cannot perform Place Details search.")
+        return None
+
+    # 요청할 필드 목록 정의
+    fields = [
+        'wheelchair_accessible_entrance',
+        'wheelchair_accessible_restroom',
+        'wheelchair_accessible_parking',
+        'wheelchair_accessible_seating', # 필요한 추가 정보
+    ]
+    try:
+        logger.info(f"Calling Google Place Details API for place_id: '{place_id}' with fields: {fields}")
+        resp = gmaps.place(
+            place_id=place_id,
+            fields=fields,
+            language=language
+        )
+        result = resp.get('result', {})
+        return {
+            # 휠체어 접근성 정보 (True/False/None)
+            "wheelchair_entrance": result.get('wheelchair_accessible_entrance'),
+            "wheelchair_restroom": result.get('wheelchair_accessible_restroom'),
+            "wheelchair_parking": result.get('wheelchair_accessible_parking'),
+            "wheelchair_seating": result.get('wheelchair_accessible_seating'),
+        }
+
+    except ApiError as e:
+        logger.error(f"Google Place Details API Error for place_id '{place_id}': {e.status} - {e.message}")
+        return None
+    except Exception as e:
+        logger.exception(f"Unexpected error calling Google Place Details API for place_id '{place_id}': {e}")
+        return None

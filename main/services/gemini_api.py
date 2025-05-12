@@ -2,7 +2,7 @@ import google.generativeai as genai
 from django.conf import settings
 import json
 import logging
-from .places_api import find_places_by_text_search
+from .places_api import find_places_by_text_search, get_place_details_with_wheelchair_info
 from datetime import timedelta
 
 logger = logging.getLogger(__name__)
@@ -25,8 +25,8 @@ INTEREST_TO_PLACE_TYPE_MAP = {
     "시장": ["store", "point_of_interest"],
     "번화가": ["night_club", "bar", "restaurant", "store"],
 }
-DEFAULT_PLACE_API_LIMIT_PER_QUERY = 2  # 각 검색어당 가져올 장소 수 (테스트를 위해 줄임)
-GEMINI_SUGGESTED_QUERY_COUNT = 2  # Gemini에게 요청할 검색어 제안 개수
+DEFAULT_PLACE_API_LIMIT_PER_QUERY = 3  # 각 검색어당 가져올 장소 수 (테스트를 위해 줄임)
+GEMINI_SUGGESTED_QUERY_COUNT = 3  # Gemini에게 요청할 검색어 제안 개수
 
 
 # --- 새로운 함수: Gemini를 사용하여 검색어 제안 ---
@@ -67,7 +67,7 @@ def suggest_search_queries_by_gemini(interest, mood, city, travel_request):
     """
     generation_config = genai.types.GenerationConfig(
         response_mime_type="application/json",
-        temperature=0.8  # 창의성을 위해 약간 높임
+        temperature=0.75  # 창의성을 위해 약간 높임
     )
     try:
         response = model.generate_content(prompt, generation_config=generation_config)
@@ -144,6 +144,7 @@ def generate_place(travel_request):
                             place_data['original_search_query'] = current_query  # 실제 사용된 검색어
                             place_data['search_method'] = search_method  # 검색 방식
 
+
                         all_fetched_places.extend(places_found)
                         logger.debug(
                             f"Found {len(places_found)} places for query='{current_query}' ({search_method}), city='{city}'")
@@ -151,10 +152,6 @@ def generate_place(travel_request):
                     except (ValueError, ConnectionAbortedError, RuntimeError) as e:
                         logger.error(
                             f"API or Config error during Places API call (query: '{current_query}', method: {search_method}, TR ID {travel_request.id}): {e}")
-                        # 이 경우, 이 특정 검색어에 대한 호출은 실패했지만, 다른 검색어는 계속 시도할 수 있도록 함
-                        # 심각한 오류(예: API 키 완전 문제)는 find_places_by_text_search에서 raise되어 여기서 잡히고,
-                        # generate_place를 호출한 View에서 처리될 것임.
-                        # 만약 여기서 모든 프로세스를 중단하고 싶다면 raise e
                         pass
                     except Exception as e:
                         logger.error(
@@ -171,11 +168,20 @@ def generate_place(travel_request):
         if pid and pid not in seen_ids:
             seen_ids.add(pid)
             unique_places.append(place)
-
     logger.info(f"Number of unique places found for TR ID {travel_request.id}: {len(unique_places)}")
 
     if not unique_places:
         logger.warning(f"No unique real places found from Places API for TR ID {travel_request.id}.")
+        # ─── 휠체어 진입 가능 필터 적용 ───
+        filtered_places = []
+        for p in unique_places:
+            details = get_place_details_with_wheelchair_info(p["place_id"])
+            # details가 None 이면 접근 불가(False/없음)이므로 걸러짐
+            if details and details.get("wheelchair_entrance") is True:
+                # 원본 p에 추가 정보를 합치고 싶으면 여기서 merge 가능
+                p["wheelchair_entrance"] = True
+                filtered_places.append(p)
+        logger.info(f"Number of wheelchair-accessible places after filter: {len(filtered_places)}")
 
     places_json = json.dumps(unique_places, ensure_ascii=False)
     return places_json
