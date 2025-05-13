@@ -11,7 +11,7 @@ class TravelRequestCreateView(generics.CreateAPIView):
     """
     [POST] /travel/request/ — 여행 요청 생성
     """
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = []
     serializer_class = TravelRequestCreateSerializer
 
     def create(self, request, *args, **kwargs):
@@ -33,7 +33,7 @@ class TravelRequestDetailView(generics.RetrieveUpdateDestroyAPIView):
     [PATCH]  /travel/request/{request_id}/
     [DELETE] /travel/request/{request_id}/
     """
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = []
     queryset = TravelRequest.objects.all()
     lookup_field = 'pk'
     lookup_url_kwarg = 'request_id'

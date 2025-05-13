@@ -18,7 +18,7 @@ class TravelScheduleCreateView(generics.CreateAPIView):
     Request body: { "travel_request": <request_id> }
     """
     serializer_class = TravelScheduleSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = []
 
     def create(self, request, *args, **kwargs):
         travel_request_id_str = request.data.get("travel_request")
@@ -36,7 +36,7 @@ class TravelScheduleCreateView(generics.CreateAPIView):
         try:
             # 이 부분은 트랜잭션 외부로 빼는 것이 좋습니다. API 호출은 시간이 오래 걸릴 수 있습니다.
             # 먼저 tr_obj를 가져오고, Gemini 호출 후, DB 작업을 트랜잭션으로 묶습니다.
-            _tr_obj_for_gemini = get_object_or_404(TravelRequest, pk=travel_request_id, user=request.user)
+            _tr_obj_for_gemini = get_object_or_404(TravelRequest, pk=travel_request_id)
             raw_json = generate_travel_schedule_from_gemini(_tr_obj_for_gemini)
             schedule_data = json.loads(raw_json)
 
@@ -141,13 +141,13 @@ class TravelScheduleListView(generics.ListAPIView):
     [GET] /travel/schedule/{request_id}/
     요청별 생성된 모든 여행 스케줄을 버전 순으로 조회합니다.
     """
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = []
     #renderer_classes   = [JSONRenderer]
     serializer_class = TravelScheduleSerializer
     lookup_url_kwarg = 'request_id'
 
     def get_queryset(self):
-        tr = get_object_or_404(TravelRequest, pk=self.kwargs['request_id'], user=self.request.user)
+        tr = get_object_or_404(TravelRequest, pk=self.kwargs['request_id'])
 
         return TravelSchedule.objects.filter(travel_request=tr).order_by('version')
 
@@ -173,15 +173,14 @@ class TravelScheduleDetailView(generics.RetrieveUpdateDestroyAPIView):
     [PUT] [PATCH] /travel/schedule/{request_id}/{version}/ — 해당 버전의 스케줄 수정
     [DELETE] /travel/schedule/{request_id}/{version}/ — 해당 버전의 스케줄 삭제
     """
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = []
     serializer_class   = TravelScheduleSerializer
     lookup_url_kwarg='version'
     lookup_field = 'version'
 
     def get_queryset(self):
         tr = get_object_or_404(TravelRequest,
-                               pk=self.kwargs['request_id'],
-                               user=self.request.user)
+                               pk=self.kwargs['request_id'])
         return TravelSchedule.objects.filter(travel_request=tr)
 
     def delete(self, request, *args, **kwargs):

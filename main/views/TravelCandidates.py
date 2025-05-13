@@ -18,11 +18,11 @@ class TravelCandidatesListView(APIView):
       - 없거나 '전체'인 경우: 모든 interest × mood 조합의 후보를 뿌립니다.
       - 특정 interest일 경우: 그 관심사에 대응하는 조합만 검색합니다.
     """
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = []
     def get(self, request, *args, **kwargs):
         # 1) TravelRequest 객체 가져오기
         request_pk=int(kwargs.get('request_id'))
-        tr=get_object_or_404(TravelRequest, pk=request_pk, user=request.user)
+        tr=get_object_or_404(TravelRequest, pk=request_pk)
         # 2) 쿼리파라미터에서 필터링할 관심사 가져오기
         interest_filter = request.query_params.get('interest')
         # 3) places_api 기반 후보지 생성
@@ -69,11 +69,11 @@ class TravelCandidatesSelectView(APIView):
     [PATCH] /travel/schedule/candidates/{request_id}/
     [PATCH] /travel/schedule/candidates/{request_id}/
     """
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = []
 
     def _get_request(self, kwargs, user):
         request_pk = int(kwargs.get('request_id'))
-        return get_object_or_404(TravelRequest, pk=request_pk, user=user)
+        return get_object_or_404(TravelRequest, pk=request_pk)
 
     def _ensure_place(self, place_id):
         """
