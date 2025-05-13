@@ -252,70 +252,77 @@ def generate_travel_schedule_from_gemini(travel_request):
     mandatory_places_for_prompt_str = json.dumps(mandatory_places_info, ensure_ascii=False)
     additional_candidates_for_prompt_str = json.dumps(additional_candidate_places_for_schedule, ensure_ascii=False)
 
+    # ... (generate_travel_schedule_from_gemini 함수 상단은 동일) ...
+
     prompt = f"""
-    You are a meticulous and thoughtful travel planning assistant specializing in wheelchair-accessible itineraries.
-    Create a detailed, accessible itinerary for the user’s trip, balancing 2–3 activities per day.
+        You are a meticulous and thoughtful travel planning assistant specializing in wheelchair-accessible itineraries.
+        Create a detailed, accessible itinerary for the user’s trip, balancing 2–3 main activities per day, ensuring variety and a good distribution of activities throughout the entire travel period, including evenings.
 
-    User Travel Request:
-    - Country: {travel_request.country}
-    - Cities: {', '.join(travel_request.cities)}
-    - Dates: {travel_dates[0]} to {travel_dates[-1]} (days: {', '.join(travel_dates)})
-    - Interests: {', '.join(travel_request.interests) or 'None'}
-    - Mood: {', '.join(travel_request.mood) or 'None'}
-    - Transport: {', '.join(travel_request.transportation) or 'None'}
+        User Travel Request:
+        - Country: {travel_request.country}
+        - Cities: {', '.join(travel_request.cities)}
+        - Dates: {travel_dates[0]} to {travel_dates[-1]} (Available days for scheduling: {', '.join(travel_dates)})
+        - Interests: {', '.join(travel_request.interests) or 'None'}
+        - Mood: {', '.join(travel_request.mood) or 'None'}
+        - Transport: {', '.join(travel_request.transportation) or 'None'}
 
-    1) **Mandatory Places** (must include all of these. Each place object includes "place_id", "name", "lat", "lng", "address", "types", "rating", "website", "opening_hours_text", and "wheelchair_details" which contains "wheelchair_entrance" (guaranteed to be not False)):
-    {mandatory_places_for_prompt_str}
+        1) **Mandatory Places** (must include all of these. Each place object includes "place_id", "name", "lat", "lng", "address", "types", "rating", "website", "opening_hours_text", and "wheelchair_details" which contains "wheelchair_entrance" (guaranteed to be not False)):
+        {mandatory_places_for_prompt_str}
 
-    2) **Additional Candidate Places** (Consider these if the schedule needs more activities. These also include full details similar to Mandatory Places, with "wheelchair_details" confirming "wheelchair_entrance" is not False):
-    {additional_candidates_for_prompt_str}
+        2) **Additional Candidate Places** (Consider these to enrich the schedule if "Mandatory Places" are few or to fill gaps. These also include full details similar to Mandatory Places, with "wheelchair_details" confirming "wheelchair_entrance" is not False. **Avoid selecting places from this list if they are already in the "Mandatory Places" list.** Aim for variety.):
+        {additional_candidates_for_prompt_str}
 
-    **Key Instructions for Itinerary Creation:**
-    1.  **Wheelchair Accessibility is Paramount:**
-        -   ALL scheduled places MUST be suitable for wheelchair users. The provided lists are pre-filtered so "wheelchair_details.wheelchair_entrance" is NOT false.
-        -   The "wheelchair_details" key in each place object currently only confirms "wheelchair_entrance". For other facilities (restrooms, parking, seating), you may need to make reasonable inferences based on place "types" (e.g., a 'museum' or 'shopping_mall' is more likely to have accessible restrooms than a small 'store'). Clearly state if information beyond entrance accessibility is an assumption or if "wheelchair_details.wheelchair_entrance" was null (meaning unknown, not confirmed false).
-    2.  **Incorporate User's Selected Places:** Integrate all "Mandatory Places" naturally into the itinerary.
-    3.  **Utilize Additional Candidates:** If "Mandatory Places" are few, or to enrich the schedule, select suitable places from "Additional Candidate Places".
-    4.  **Balanced Schedule Across Full Duration:** Distribute activities evenly from the start_date to the end_date. Ensure the last day (end_date) also has appropriate activities.
-    5.  **Include Evening Activities:** Plan for activities or dining options for the evening (e.g., 18:00 - 21:00 or later if appropriate). These should also be wheelchair accessible.
-    6.  **Pacing and Variety:** Aim for a comfortable pace, typically 2-3 main activities per day, with adequate time for travel and rest. Mix types of activities.
-    7.  **Logical Flow and Minimized Travel:** Group nearby attractions. Suggest efficient, accessible routes.
-    8.  **Single Visit Principle:** Each distinct place should ideally be visited only once.
-    9.  **Transportation:** Suggest appropriate wheelchair-friendly transportation.
+        **Key Instructions for Itinerary Creation:**
+        1.  **Wheelchair Accessibility is Paramount:**
+            -   ALL scheduled places MUST be suitable for wheelchair users. The provided lists are pre-filtered so "wheelchair_details.wheelchair_entrance" is NOT false.
+            -   The "wheelchair_details" key in each place object currently only confirms "wheelchair_entrance". For other facilities (restrooms, parking, seating), you may need to make reasonable inferences based on place "types" (e.g., a 'museum' or 'shopping_mall' is more likely to have accessible restrooms than a small 'store'). Clearly state if information beyond entrance accessibility is an assumption or if "wheelchair_details.wheelchair_entrance" was null (meaning unknown, not confirmed false).
+        2.  **Incorporate User's Selected Places:** Integrate all "Mandatory Places" naturally into the itinerary.
+        3.  **Utilize Additional Candidates Wisely:** If "Mandatory Places" are few, or to enrich the schedule, select suitable and **diverse** places from "Additional Candidate Places". Do not simply repeat places already selected by the user.
+        4.  **Balanced Schedule Across Full Duration:**
+            -   Distribute activities evenly from the start_date to the end_date.
+            -   Ensure the **last day (end_date)** also has appropriate activities, perhaps lighter ones or those conveniently located, considering the end of the trip.
+        5.  **Include Evening Activities:**
+            -   **Crucially, plan for activities or dining options for the evenings (e.g., approximately 18:00 - 21:00 or later if appropriate for the place type and city).**
+            -   These evening places must also be wheelchair accessible and fit the user's interests and mood if possible. Consider restaurants, scenic spots for night views, or relaxed evening entertainment.
+        6.  **Pacing and Variety:** Aim for a comfortable pace, typically 2-3 main activities per day, with adequate time for travel and rest. Mix types of activities based on user interests.
+        7.  **Logical Flow and Minimized Travel:** Group nearby attractions. Suggest efficient, accessible routes.
+        8.  **Single Visit Principle:** Each distinct place should ideally be visited only once during the entire trip.
+        9.  **Transportation:** Suggest appropriate wheelchair-friendly transportation.
 
-    **Output Format:**
-    The entire response MUST be a single valid JSON object.
-    The JSON object MUST have a key "schedule_items" which is a list of schedule item objects.
-    Each schedule item object MUST contain:
-    -   "place_id": string (from the provided lists)
-    -   "place_name": string (from the provided lists)
-    -   "date": string (YYYY-MM-DD format, within the travel period)
-    -   "start_time": string (HH:MM format, e.g., "10:00")
-    -   "end_time": string (HH:MM format, e.g., "12:00")
-    -   "lat": float (latitude from the provided lists)
-    -   "lng": float (longitude from the provided lists)
-    -   "address": string (full address from the provided lists)
-    -   "transport_type": string
-    
-    If a meaningful, accessible itinerary cannot be formed, "schedule_items" should be an empty list, and you MUST include an "error_message" field.
+        **Output Format:**
+        The entire response MUST be a single valid JSON object.
+        The JSON object MUST have a key "schedule_items" which is a list of schedule item objects.
+        Each schedule item object MUST contain:
+        -   "place_id": string (from the provided lists)
+        -   "place_name": string (from the provided lists)
+        -   "date": string (YYYY-MM-DD format, within the travel period)
+        -   "start_time": string (HH:MM format, e.g., "10:00")
+        -   "end_time": string (HH:MM format, e.g., "12:00")
+        -   "lat": float (latitude from the provided lists)
+        -   "lng": float (longitude from the provided lists)
+        -   "address": string (full address from the provided lists)
+        -   "transport_type": string
 
-    Example of a single schedule item:
-    {{
-        "place_id": "ChIJ...",
-        "place_name": "Example Museum",
-        "date": "{travel_dates[0] if travel_dates else 'YYYY-MM-DD'}",
-        "start_time": "10:00",
-        "end_time": "12:30",
-        "lat": 37.12345,
-        "lng": 127.12345,
-        "address": "123 Example Street, Seoul",
-        "transport_type": "accessible taxi",
-        "description": "Explore modern art exhibits.",
-        "wheelchair_accessibility_notes": "Wheelchair entrance: True. Accessible restrooms are typically available in large museums."
-    }}
+        If a meaningful, accessible itinerary cannot be formed, "schedule_items" should be an empty list, and you MUST include an "error_message" field.
 
-    Generate a plausible, enjoyable, and fully wheelchair-accessible itinerary.
+        Example of a single schedule item:
+        {{
+            "place_id": "ChIJ...",
+            "place_name": "Example Museum",
+            "date": "{travel_dates[0] if travel_dates else 'YYYY-MM-DD'}",
+            "start_time": "10:00",
+            "end_time": "12:30",
+            "lat": 37.12345,
+            "lng": 127.12345,
+            "address": "123 Example Street, Seoul",
+            "transport_type": "accessible taxi",
+            "description": "Explore modern art exhibits.",
+            "wheelchair_accessibility_notes": "Wheelchair entrance: True. Accessible restrooms are typically available in large museums."
+        }}
+
+        Generate a plausible, enjoyable, and fully wheelchair-accessible itinerary.
     """
+    # ... (이하 Gemini API 호출 및 응답 처리 로직은 이전과 동일) ...
     # ... (이하 Gemini API 호출 및 응답 처리 로직은 이전과 동일) ...
     generation_config = genai.types.GenerationConfig(
         response_mime_type="application/json"

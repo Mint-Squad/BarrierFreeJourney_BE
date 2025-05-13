@@ -199,22 +199,43 @@ class TravelScheduleDetailView(generics.RetrieveUpdateDestroyAPIView):
                 {'result': 'error', 'message': 'Invalid items data format'},
                 status=HTTP_400_BAD_REQUEST
             )
-        schedule.items.all().delete()
+        try:
+            with transaction.atomic():
+                schedule.items.all().delete()
+                new_schedule_items=[]
+                for item in items_data:
+                    place_id=item.get('place_id')
+                    try:
+                        place_instance=Place.objects.get(place_id=place_id)
+                    except Place.DoesNotExist:
+                        logger.warning(
+                            f"Place with place_id {place_id} not found in DB for schedule {schedule.id} during PUT. Skipping item.")
+                        continue
+                    # ScheduleItem 생성
+                    new_schedule_items.append(
+                        ScheduleItem(
+                            schedule=schedule,
+                            place=place_instance,  # ForeignKey로 조회된 Place 객체 연결
+                            date=item.get('date'),
+                            start_time=item.get('start_time'),
+                            end_time=item.get('end_time'),
+                            transport_type=item.get('transport_type', "")
+                        )
+                    )
+                if new_schedule_items:
+                    ScheduleItem.objects.bulk_create(new_schedule_items)
+                else:
+                    # 모든 아이템이 place_id가 없거나 Place 정보를 가져올 수 없는 경우
+                    logger.info(f"No valid schedule items to create for schedule {schedule.id} during PUT.")
 
-        for item in items_data:
-            ScheduleItem.objects.create(
-                schedule=schedule,
-                place_name = item.get('place_name'),
-                place_id = item.get('place_id'),
-                date = item.get('date'),
-                start_time = item.get('start_time'),
-                end_time = item.get('end_time'),
-                lat = item.get('lat'),
-                lng = item.get('lng'),
-                transport_type = item.get('transport_type'),
-                address = item.get('address'),
+        except Exception as e:  # 데이터베이스 오류 또는 기타 예외 처리
+            logger.exception(f"Error during PUT operation for schedule {schedule.id}: {e}")
+            return Response(
+                {'result': 'error', 'message': f'An error occurred while updating the schedule: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-        serializer=self.get_serializer(schedule)
+        updated_schedule = self.get_object()  # 변경사항이 반영된 객체를 다시 가져옴
+        serializer = self.get_serializer(updated_schedule)
         return Response(
             {'result': 'success', 'schedule': serializer.data},
             status=status.HTTP_200_OK

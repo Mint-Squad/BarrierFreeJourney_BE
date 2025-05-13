@@ -14,9 +14,9 @@ class ScheduleItemSerializer(serializers.ModelSerializer):
     place=PlaceSerializer(read_only=True)
     class Meta:
         model = ScheduleItem
-        fields = ['id', 'place', 'date',
+        fields = ['id', 'date',
                   'start_time', 'end_time',
-                  'transport_type']
+                  'transport_type', 'place']
         read_only_fields = fields
 
 class TravelScheduleSerializer(serializers.ModelSerializer):
