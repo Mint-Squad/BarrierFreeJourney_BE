@@ -82,7 +82,7 @@ class TravelScheduleCreateView(generics.CreateAPIView):
             with transaction.atomic():
                 # 트랜잭션 내에서 TravelRequest 객체를 다시 가져오면서 lock을 겁니다.
                 # 이렇게 하면 다른 트랜잭션이 이 TravelRequest에 대한 TravelSchedule 생성을 시도할 때 대기하게 됩니다.
-                tr_obj = TravelRequest.objects.select_for_update().get(pk=travel_request_id, user=request.user)
+                tr_obj = TravelRequest.objects.select_for_update().get(pk=travel_request_id)
 
                 # 버전 번호 결정 (이제 이 로직은 lock이 걸린 상태에서 실행됨)
                 last_schedule = TravelSchedule.objects.filter(travel_request=tr_obj).order_by("-version").first()
