@@ -18,7 +18,7 @@ class TravelRequestCreateView(generics.CreateAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         # user 할당 후 저장
-        travel_request = serializer.save(user=request.user)
+        travel_request = serializer.save()
         # 응답 포맷
         output = TravelRequestCreateSerializer(travel_request).data
         return Response(
