@@ -11,7 +11,7 @@ class TravelRequestCreateView(generics.CreateAPIView):
     """
     [POST] /travel/request/ — 여행 요청 생성
     """
-    permission_classes = []
+    #permission_classes = []
     serializer_class = TravelRequestCreateSerializer
 
     def create(self, request, *args, **kwargs):
@@ -20,7 +20,7 @@ class TravelRequestCreateView(generics.CreateAPIView):
         # user 할당 후 저장
         travel_request = serializer.save(user=request.user)
         # 응답 포맷
-        output = TravelRequestDetailSerializer(travel_request).data
+        output = TravelRequestCreateSerializer(travel_request).data
         return Response(
             {"result": "success", "travel_request": output},
             status=status.HTTP_201_CREATED
