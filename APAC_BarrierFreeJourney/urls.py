@@ -22,14 +22,14 @@ from main.views.TravelRequest import TravelRequestCreateView, TravelRequestDetai
 from main.views.TravelSchedule import TravelScheduleCreateView, TravelScheduleListView,TravelScheduleDetailView
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
-    path('travel/request/', TravelRequestCreateView.as_view(), name='travel-request-create'),
-    path('travel/request/<int:request_id>/', TravelRequestDetailView.as_view(), name='travel-request-detail'),
-    path('travel/schedule/',TravelScheduleCreateView.as_view(), name='travel-schedule-create'),
-    path('travel/schedule/<int:request_id>/', TravelScheduleListView.as_view(), name='travel-schedule-list'),
-    path('travel/schedule/<int:request_id>/<int:version>/', TravelScheduleDetailView.as_view(), name='travel-schedule-detail'),
-    path('travel/schedule/candidates/<int:request_id>/', TravelCandidatesListView.as_view(), name='travel-candidate-list'),
-    path('travel/schedule/select/<int:request_id>/', TravelCandidatesSelectView.as_view(), name='travel-candidate-select'),
+    path('admin', admin.site.urls),
+    path('travel/request', TravelRequestCreateView.as_view(), name='travel-request-create'),
+    path('travel/request/<int:request_id>', TravelRequestDetailView.as_view(), name='travel-request-detail'),
+    path('travel/schedule',TravelScheduleCreateView.as_view(), name='travel-schedule-create'),
+    path('travel/schedule/<int:request_id>', TravelScheduleListView.as_view(), name='travel-schedule-list'),
+    path('travel/schedule/<int:request_id>/<int:version>', TravelScheduleDetailView.as_view(), name='travel-schedule-detail'),
+    path('travel/schedule/candidates/<int:request_id>', TravelCandidatesListView.as_view(), name='travel-candidate-list'),
+    path('travel/schedule/select/<int:request_id>', TravelCandidatesSelectView.as_view(), name='travel-candidate-select'),
 
 
     ]

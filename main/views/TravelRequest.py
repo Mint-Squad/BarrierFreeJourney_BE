@@ -14,7 +14,7 @@ class TravelRequestCreateView(generics.CreateAPIView):
     permission_classes = [permissions.AllowAny]
     serializer_class = TravelRequestCreateSerializer
 
-    def create(self, request, *args, **kwargs):
+    def post(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         # user 할당 후 저장
@@ -66,8 +66,8 @@ class TravelRequestDetailView(generics.RetrieveUpdateDestroyAPIView):
         instance = self.get_object()
 
         # 작성자 체크
-        if instance.user != request.user:
-            raise PermissionDenied("작성자만 수정할 수 있습니다.")
+        #if instance.user != request.user:
+        #    raise PermissionDenied("작성자만 수정할 수 있습니다.")
 
         serializer = self.get_serializer(
             instance, data=request.data, partial=partial
@@ -88,8 +88,8 @@ class TravelRequestDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
-        if instance.user != request.user:
-            raise PermissionDenied("작성자만 삭제할 수 있습니다.")
+        #if instance.user != request.user:
+        #    raise PermissionDenied("작성자만 삭제할 수 있습니다.")
         self.perform_destroy(instance)
         return Response(
             {"result": "success"},
