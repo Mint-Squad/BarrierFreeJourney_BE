@@ -18,7 +18,7 @@ class TravelScheduleCreateView(generics.CreateAPIView):
     Request body: { "travel_request": <request_id> }
     """
     serializer_class = TravelScheduleSerializer
-    permission_classes = []
+    permission_classes = [permissions.AllowAny]
 
     def create(self, request, *args, **kwargs):
         travel_request_id_str = request.data.get("travel_request")
@@ -141,7 +141,7 @@ class TravelScheduleListView(generics.ListAPIView):
     [GET] /travel/schedule/{request_id}/
     요청별 생성된 모든 여행 스케줄을 버전 순으로 조회합니다.
     """
-    permission_classes = []
+    permission_classes = [permissions.AllowAny]
     #renderer_classes   = [JSONRenderer]
     serializer_class = TravelScheduleSerializer
     lookup_url_kwarg = 'request_id'
@@ -173,7 +173,7 @@ class TravelScheduleDetailView(generics.RetrieveUpdateDestroyAPIView):
     [PUT] [PATCH] /travel/schedule/{request_id}/{version}/ — 해당 버전의 스케줄 수정
     [DELETE] /travel/schedule/{request_id}/{version}/ — 해당 버전의 스케줄 삭제
     """
-    permission_classes = []
+    permission_classes = [permissions.AllowAny]
     serializer_class   = TravelScheduleSerializer
     lookup_url_kwarg='version'
     lookup_field = 'version'

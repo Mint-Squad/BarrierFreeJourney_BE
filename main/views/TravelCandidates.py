@@ -18,7 +18,7 @@ class TravelCandidatesListView(APIView):
       - 없거나 '전체'인 경우: 모든 interest × mood 조합의 후보를 뿌립니다.
       - 특정 interest일 경우: 그 관심사에 대응하는 조합만 검색합니다.
     """
-    permission_classes = []
+    permission_classes = [permissions.AllowAny]
     def get(self, request, *args, **kwargs):
         # 1) TravelRequest 객체 가져오기
         request_pk=int(kwargs.get('request_id'))
@@ -69,7 +69,7 @@ class TravelCandidatesSelectView(APIView):
     [PATCH] /travel/schedule/candidates/{request_id}/
     [PATCH] /travel/schedule/candidates/{request_id}/
     """
-    permission_classes = []
+    permission_classes = [permissions.AllowAny]
 
     def _get_request(self, kwargs, user):
         request_pk = int(kwargs.get('request_id'))
