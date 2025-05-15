@@ -20,7 +20,7 @@ class TravelRequestCreateView(generics.CreateAPIView):
         # user 할당 후 저장
         travel_request = serializer.save()
         # 응답 포맷
-        output = TravelRequestCreateSerializer(travel_request).data
+        output = TravelRequestDetailSerializer(travel_request).data
         return Response(
             {"result": "success", "travel_request": output},
             status=status.HTTP_201_CREATED
