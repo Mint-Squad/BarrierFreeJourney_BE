@@ -28,7 +28,7 @@ urlpatterns = [
     path('travel/schedule',TravelScheduleCreateView.as_view(), name='travel-schedule-create'),
     path('travel/schedule/<int:request_id>', TravelScheduleListView.as_view(), name='travel-schedule-list'),
     path('travel/schedule/<int:request_id>/<int:version>', TravelScheduleDetailView.as_view(), name='travel-schedule-detail'),
-    path('travel/schedule/candidates/<int:request_id>', TravelCandidatesListView.as_view(), name='travel-candidate-list'),
+    path('travel/schedule/candidates/<int:request_id>/', TravelCandidatesListView.as_view(), name='travel-candidate-list'),
     path('travel/schedule/select/<int:request_id>', TravelCandidatesSelectView.as_view(), name='travel-candidate-select'),
 
 
