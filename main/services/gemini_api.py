@@ -7,6 +7,8 @@ import logging
 from .places_api import find_places_by_text_search, get_place_details_with_wheelchair_info as get_place_details_from_api
 from datetime import timedelta
 
+from ..models.models import Place
+
 # googlemaps 클라이언트는 places_api.py에서 주로 사용되지만, 여기서도 필요시 초기화 가능
 # (현재는 get_place_details_from_api가 places_api.py의 gmaps를 사용하므로 직접 필요 없음)
 
@@ -145,6 +147,19 @@ def generate_place(travel_request):
                                 all_candidate_places.append(place_data)
                                 processed_place_ids_for_this_run.add(place_id)
 
+                        # Save decided place to Place model
+                        for p in places_found_for_current_query:
+                            Place.objects.update_or_create(place_id=p['place_id'],
+                                                           defaults={
+                                                               'name': p['name'],
+                                                               'address': p['address'],
+                                                               'lat': p['lat'],
+                                                               'lng': p['lng'],
+                                                               'wheelchair_entrance': p.get('wheelchair_details',
+                                                                                            {}).get(
+                                                                   'wheelchair_entrance')
+
+                                                           })
                         logger.debug(
                             f"Found and processed {len(places_found_for_current_query)} wheelchair-accessible places for query='{current_query}'")
 
