@@ -33,7 +33,7 @@ INTEREST_TO_PLACE_TYPE_MAP = {
     "번화가": ["night_club", "bar", "restaurant", "store"],
 }
 DEFAULT_PLACE_API_LIMIT_PER_QUERY = 3
-GEMINI_SUGGESTED_QUERY_COUNT = 1  # API 호출 줄이기 위해 1로 유지 또는 조절
+GEMINI_SUGGESTED_QUERY_COUNT = 2  # API 호출 줄이기 위해 1로 유지 또는 조절
 
 
 def suggest_search_queries_by_gemini(interest, mood, city, travel_request):
